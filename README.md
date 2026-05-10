@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🌍 Language / 语言 / Idioma
 
 [English](README.md) | [简体中文](README_ZH.md) | [Español](README_ES.md)
