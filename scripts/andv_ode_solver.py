@@ -48,14 +48,13 @@ Default epidemiological parameters (ANDV-specific):
   - Basic reproduction number    R0         = 2.12
   - Incubation period            T_inc      = 21.0 days    (median)
   - Infectious period            T_inf      = 7.0 days
-  - Total population pool        N          = 450000000
+  - Total population pool        N          = 1000
 
 Usage:
     python scripts/andv_ode_solver.py
 
 Output:
-    results/andv_trajectories.csv   — full time series for both scenarios
-    results/scenario_comparison.txt — numeric summary (peak, final size, Reff)
+    results/andv_trajectories.csv   — daily time series for both scenarios
 """
 
 from __future__ import annotations
@@ -119,18 +118,14 @@ def seirq_ode(
 
     # --- Time-dependent quarantine detection rate ---
     if t >= tau:
-        # kappa = 0.3: baseline detection ramp; scaled by efficiency
         quarantine_rate = eta_q * 0.3
     else:
         quarantine_rate = 0.0
 
     # --- Panic-driven behavioural reduction ---
-    # Awareness grows with the fraction of the population that has been
-    # quarantined. Q / (0.01 * N) normalises so that Q reaching 1% of N
-    # causes (alpha * 1.0) reduction in beta.
     denom = max(0.01 * N, 1.0)
     awareness = 1.0 - alpha * (Q / denom)
-    awareness = np.clip(awareness, 0.10, 1.0)   # floor at 10% contact
+    awareness = np.clip(awareness, 0.10, 1.0)
 
     beta_eff = beta0 * awareness
 
@@ -160,9 +155,7 @@ def compute_reff(
     Reff(t) = R0 * (S/N) * awareness(t) * (1 - qrate_capture(t))
 
     where qrate_capture is the fraction of infectious individuals who are
-    detected and removed per day, approximated as:
-        qrate_capture = 1 - exp(-qrate * dt),  but here we use the simpler
-        linear fraction qrate / (qrate + gamma) for a steady-state estimate.
+    detected and removed per day, approximated as qrate / (qrate + gamma).
     """
     denom = max(0.01 * N, 1.0)
     awareness = 1.0 - alpha * (Q / denom)
@@ -173,7 +166,6 @@ def compute_reff(
     else:
         qrate = 0.0
 
-    # Fraction of infectious people captured by quarantine per generation
     q_capture = qrate / (qrate + gamma) if (qrate + gamma) > 0 else 0.0
 
     return R0 * (S / N) * awareness * (1.0 - q_capture)
@@ -196,21 +188,23 @@ def simulate_scenario(
     tau: float,
     N: float,
     alpha: float,
-    t_max: float = 200.0,
-    t_eval: int = 2001,
+    t_max: float = 60.0,
 ) -> Dict:
     """
-    Run one full SEIRQ simulation for a given scenario.
+    Run one full SEIRQ simulation for a given scenario over t_max days.
 
     Returns a dict with keys: 't', 'S', 'E', 'I', 'R', 'Q', 'active', 'Reff'.
     """
     y0 = [S0, E0, I0, R0_pop, Q0]
 
+    # Evaluate every 0.1 day for smooth curves, then subsample to daily
+    t_eval = np.linspace(0, t_max, int(t_max * 10) + 1)  # every 0.1 day
+
     sol = solve_ivp(
         seirq_ode,
         [0.0, t_max],
         y0,
-        t_eval=np.linspace(0, t_max, t_eval),
+        t_eval=t_eval,
         args=(beta0, sigma, gamma, eta_q, tau, N, alpha),
         method="RK45",
         dense_output=False,
@@ -236,126 +230,89 @@ def simulate_scenario(
     }
 
 
-def scenario_summary(data: Dict, label: str) -> Dict:
-    """
-    Extract key epidemiological metrics from a simulation result.
-
-    Returns a dict with peak day, peak value, final sizes, and Reff trajectory.
-    """
-    active = data["active"]
-    t = data["t"]
-    Reff = data["Reff"]
-
-    peak_idx = int(np.argmax(active))
-
-    below_one = np.where(Reff < 1.0)[0]
-    below_day = float(t[below_one[0]]) if len(below_one) > 0 else None
-
-    return {
-        "scenario": label,
-        "peak_day": float(t[peak_idx]),
-        "peak_active": float(active[peak_idx]),
-        "final_R": float(data["R"][-1]),
-        "final_Q": float(data["Q"][-1]),
-        "final_S": float(data["S"][-1]),
-        "Reff_initial": float(Reff[0]),
-        "Reff_day_7": float(Reff[min(70, len(Reff) - 1)]),
-        "Reff_final": float(Reff[-1]),
-        "Reff_below_1_day": below_day,
-    }
+def find_reff_below_one(t: np.ndarray, Reff: np.ndarray) -> float:
+    """Return the first day where Reff drops below 1.0, or NaN if never."""
+    below = np.where(Reff < 1.0)[0]
+    return float(t[below[0]]) if len(below) > 0 else float("nan")
 
 
 # ---------------------------------------------------------------------------
 # 3.  Main entry point
 # ---------------------------------------------------------------------------
 
+# ── Epidemiological constants (ANDV-specific, module-level) ────────────
+R0 = 2.12                         # basic reproduction number
+INCUBATION_PERIOD = 21.0          # median incubation (days)
+INFECTIOUS_PERIOD = 7.0           # infectious period (days)
+N = 1_000                         # modelled population pool
+ALPHA = 0.65                      # panic elasticity
+
+sigma = 1.0 / INCUBATION_PERIOD
+gamma = 1.0 / INFECTIOUS_PERIOD
+beta0 = R0 * gamma
+
+
 if __name__ == "__main__":
     OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
 
-    # ── Epidemiological constants (ANDV-specific) ──────────────────────
-    R0 = 2.12                         # basic reproduction number
-    INCUBATION_PERIOD = 21.0          # median incubation (days)  [1–6 weeks]
-    INFECTIOUS_PERIOD = 7.0           # infectious period (days)
-    N = 1_000                         # modelled population pool
-
-    sigma = 1.0 / INCUBATION_PERIOD
-    gamma = 1.0 / INFECTIOUS_PERIOD
-    beta0 = R0 * gamma
-
-    # ── Scenario A: Worst-case (no friction) ───────────────────────────
-    # 150 disembarked seeds, 7-day policy lag, 30% quarantine efficiency.
+    # ── Scenario A: Worst-Case ─────────────────────────────────────────
+    # E0=150 seeds, tau=7 days lag, eta_q=0.30 efficiency
+    E0_a, I0_a = 150, 3
+    S0_a = N - E0_a - I0_a
     scenario_a = simulate_scenario(
         beta0=beta0, sigma=sigma, gamma=gamma,
-        S0=N - 50 - 150, E0=50, I0=150, R0_pop=0, Q0=0,
+        S0=S0_a, E0=E0_a, I0=I0_a, R0_pop=0, Q0=0,
         eta_q=0.30, tau=7.0, N=N, alpha=0.65,
     )
-    summary_a = scenario_summary(scenario_a, "Worst-Case (150 seeds, 7d lag)")
 
-    # ── Scenario B: Real-world containment ─────────────────────────────
-    # 16 seeds (14 passengers + 2 contacts), 1-day policy lag,
-    # 95% quarantine efficiency (military hospital isolation).
+    # ── Scenario B: Real-Time Containment ──────────────────────────────
+    # E0=16 seeds, tau=1 day lag, eta_q=0.95 efficiency
+    E0_b, I0_b = 16, 3
+    S0_b = N - E0_b - I0_b
     scenario_b = simulate_scenario(
         beta0=beta0, sigma=sigma, gamma=gamma,
-        S0=N - 16 - 2, E0=16, I0=2, R0_pop=0, Q0=0,
+        S0=S0_b, E0=E0_b, I0=I0_b, R0_pop=0, Q0=0,
         eta_q=0.95, tau=1.0, N=N, alpha=0.65,
     )
-    summary_b = scenario_summary(scenario_b, "Real-Time Containment (16 seeds, 1d lag)")
 
-    # ── Build tidy CSV ─────────────────────────────────────────────────
+    # ── Build daily trajectory CSV ─────────────────────────────────────
     records = []
     for label, data in [("Worst-Case", scenario_a),
                         ("Real-Time-Containment", scenario_b)]:
-        for i in range(len(data["t"])):
-            records.append({
-                "Day": data["t"][i],
-                "Scenario": label,
-                "Susceptible": data["S"][i],
-                "Exposed": data["E"][i],
-                "Infectious": data["I"][i],
-                "Recovered": data["R"][i],
-                "Quarantined": data["Q"][i],
-                "Active_Infections": data["active"][i],
-                "Reff": data["Reff"][i],
-            })
+        # Subsample to daily integer days (t=0,1,2,...,60)
+        t_arr = data["t"]
+        for i in range(len(t_arr)):
+            # Keep every 10th point (approx daily from 0.1-day resolution)
+            if i % 10 == 0:
+                records.append({
+                    "Day": round(t_arr[i], 1),
+                    "Scenario": label,
+                    "Susceptible": data["S"][i],
+                    "Exposed": data["E"][i],
+                    "Infectious": data["I"][i],
+                    "Recovered": data["R"][i],
+                    "Quarantined": data["Q"][i],
+                    "Active_Infections": data["active"][i],
+                    "Reff": data["Reff"][i],
+                })
+
     df = pd.DataFrame(records)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     csv_path = os.path.join(OUTPUT_DIR, "andv_trajectories.csv")
     df.to_csv(csv_path, index=False)
-    print(f"[OK] Trajectories written → {csv_path}")
+    print(f"[OK] Trajectories written to {csv_path}")
+    print(f"     Rows: {len(df):,} | Scenarios: {df['Scenario'].nunique()}")
+    print(f"     Day range: {df['Day'].min():.0f} — {df['Day'].max():.0f}")
 
-    # ── Text summary ────────────────────────────────────────────────────
-    lines = [
-        "=" * 72,
-        "  ANDV SEIRQ — Scenario Comparison Summary",
-        "=" * 72,
-        "",
-        f"  R0 = {R0},  Incubation = {INCUBATION_PERIOD}d,  Infectious = {INFECTIOUS_PERIOD}d",
-        "",
-        f"  {'Metric':<38} {'Worst-Case (A)':<22} {'Real-Time (B)':<22}",
-        f"  {'─'*38} {'─'*22} {'─'*22}",
-        f"  {'Peak active infections':<38} {summary_a['peak_active']:<22.1f} {summary_b['peak_active']:<22.1f}",
-        f"  {'Peak day':<38} {summary_a['peak_day']:<22.0f} {summary_b['peak_day']:<22.0f}",
-        f"  {'Final recovered (R)':<38} {summary_a['final_R']:<22.1f} {summary_b['final_R']:<22.1f}",
-        f"  {'Final quarantined (Q)':<38} {summary_a['final_Q']:<22.1f} {summary_b['final_Q']:<22.1f}",
-        f"  {'Final susceptible (S)':<38} {summary_a['final_S']:<22.1f} {summary_b['final_S']:<22.1f}",
-        f"  {'Reff (initial)':<38} {summary_a['Reff_initial']:<22.3f} {summary_b['Reff_initial']:<22.3f}",
-        f"  {'Reff (day 7)':<38} {summary_a['Reff_day_7']:<22.3f} {summary_b['Reff_day_7']:<22.3f}",
-        f"  {'Reff (final)':<38} {summary_a['Reff_final']:<22.4f} {summary_b['Reff_final']:<22.4f}",
-        f"  {'Reff below 1.0 on day':<38} {summary_a['Reff_below_1_day'] if summary_a['Reff_below_1_day'] is not None else 'Never':<22} {summary_b['Reff_below_1_day'] if summary_b['Reff_below_1_day'] is not None else 'Never':<22}",
-        "",
-        "─" * 72,
-        "  Key insight:",
-        f"  With real-time military isolation (1-day lag, 95% efficiency) the outbreak",
-        f"  peaks at only {summary_b['peak_active']:.0f} active infections and Reff drops below 1.0",
-        f"  on day {summary_b['Reff_below_1_day']:.0f} — avoiding the catastrophic trajectory of the",
-        f"  worst-case scenario ({summary_a['peak_active']:.0f} peak active).",
-        "=" * 72,
-    ]
-    summary_text = "\n".join(lines)
-    txt_path = os.path.join(OUTPUT_DIR, "scenario_comparison.txt")
-    with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(summary_text)
-    print(f"[OK] Summary written → {txt_path}")
+    # ── Quick stats ────────────────────────────────────────────────────
+    peak_a = float(scenario_a["active"].max())
+    peak_b = float(scenario_b["active"].max())
+    reff_a = find_reff_below_one(scenario_a["t"], scenario_a["Reff"])
+    reff_b = find_reff_below_one(scenario_b["t"], scenario_b["Reff"])
+    print(f"\n  Scenario A (Worst-Case): peak active = {peak_a:.1f}, "
+          f"Reff < 1 on day {reff_a:.0f}")
+    print(f"  Scenario B (Real-Time):  peak active = {peak_b:.1f}, "
+          f"Reff < 1 on day {reff_b:.0f}")
 
     print("\nDone. Both scenarios simulated successfully.")

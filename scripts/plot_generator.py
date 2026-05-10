@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 plot_generator.py
-=================
+==================
 Generates publication-ready dual-axis charts for the ANDV SEIRQ model.
 
 Plots produced:
   1. Active Infections vs. Reff (dual-axis, log-linear)
   2. Cumulative Quarantined vs. Cumulative Recovered (dual-axis)
-  All saved to the `results/` directory at 300 DPI with seaborn styling.
+
+All saved to the `results/` directory at 300 DPI with seaborn styling.
 
 Usage:
     python scripts/plot_generator.py
@@ -21,14 +22,12 @@ from __future__ import annotations
 import os
 import sys
 import warnings
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from matplotlib import rcParams
 import seaborn as sns
 
@@ -66,7 +65,8 @@ LINE_STYLES = {
 
 AXIS_ALPHA = 0.75
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "results")
 
 
 def load_trajectories() -> pd.DataFrame:
@@ -92,12 +92,23 @@ def plot_active_vs_reff(df: pd.DataFrame) -> str:
       Right y-axis: Effective Reproduction Number Reff (linear)
 
     Saves to results/active_vs_reff.png.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Trajectories data with columns: Day, Scenario, Active_Infections, Reff.
+
+    Returns
+    -------
+    str
+        Path to the saved PNG file.
     """
     fig, ax1 = plt.subplots(figsize=(10, 5.5))
 
-    # -- Left axis: Active Infections (log) --
+    # Left axis: Active Infections (log scale)
     for scenario in ["Worst-Case", "Real-Time-Containment"]:
-        sub = df[df["Scenario"] == scenario]
+        sub = df[df["Scenario"] == scenario].copy()
+        sub = sub.sort_values("Day")
         ax1.plot(
             sub["Day"], sub["Active_Infections"],
             color=COLOURS[scenario],
@@ -115,15 +126,12 @@ def plot_active_vs_reff(df: pd.DataFrame) -> str:
 
     # Annotation: detection threshold
     ax1.axhline(y=1.0, color="gray", linewidth=0.6, linestyle=":", alpha=0.5)
-    ax1.text(
-        df["Day"].max() * 0.82, 1.8, "Detection threshold",
-        fontsize=7, color="gray", alpha=0.6,
-    )
 
-    # -- Right axis: Reff (linear) --
+    # Right axis: Reff (linear)
     ax2 = ax1.twinx()
     for scenario in ["Worst-Case", "Real-Time-Containment"]:
-        sub = df[df["Scenario"] == scenario]
+        sub = df[df["Scenario"] == scenario].copy()
+        sub = sub.sort_values("Day")
         ax2.plot(
             sub["Day"], sub["Reff"],
             color=COLOURS[scenario],
@@ -133,16 +141,17 @@ def plot_active_vs_reff(df: pd.DataFrame) -> str:
             label=f"{scenario} — Reff",
         )
 
+    # Elimination threshold line
     ax2.axhline(y=1.0, color="crimson", linewidth=1.2, linestyle="-", alpha=0.7)
     ax2.text(
-        df["Day"].max() * 0.70, 1.04, "Reff = 1 (elimination threshold)",
+        df["Day"].max() * 0.70, 1.04, "Reff = 1 (Elimination Threshold)",
         fontsize=8, color="crimson", fontstyle="italic",
     )
     ax2.set_ylabel("Effective Reproduction Number (Reff)", color="crimson")
     ax2.set_ylim(0, 2.5)
     ax2.tick_params(axis="y", labelcolor="crimson")
 
-    # -- Combined legend --
+    # Combined legend
     lines_1, labels_1 = ax1.get_legend_handles_labels()
     lines_2, labels_2 = ax2.get_legend_handles_labels()
     ax1.legend(
@@ -151,7 +160,7 @@ def plot_active_vs_reff(df: pd.DataFrame) -> str:
         ncol=1,
     )
 
-    # -- Title & layout --
+    # Title & layout
     fig.suptitle(
         "ANDV SEIRQ: Active Infections & Effective Reproduction Number",
         fontsize=14, fontweight="bold", y=0.97,
@@ -161,7 +170,7 @@ def plot_active_vs_reff(df: pd.DataFrame) -> str:
     path = os.path.join(OUTPUT_DIR, "active_vs_reff.png")
     fig.savefig(path)
     plt.close(fig)
-    print(f"[OK] Chart saved → {path}")
+    print(f"[OK] Chart saved to {path}")
     return path
 
 
@@ -175,12 +184,23 @@ def plot_quarantine_vs_recovered(df: pd.DataFrame) -> str:
     cumulative recovered (R) populations for both scenarios.
 
     Saves to results/quarantine_vs_recovered.png.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Trajectories data with columns: Day, Scenario, Quarantined, Recovered.
+
+    Returns
+    -------
+    str
+        Path to the saved PNG file.
     """
     fig, ax1 = plt.subplots(figsize=(10, 5.5))
 
-    # -- Left axis: Cumulative Quarantined --
+    # Left axis: Cumulative Quarantined
     for scenario in ["Worst-Case", "Real-Time-Containment"]:
-        sub = df[df["Scenario"] == scenario]
+        sub = df[df["Scenario"] == scenario].copy()
+        sub = sub.sort_values("Day")
         ax1.plot(
             sub["Day"], sub["Quarantined"],
             color=COLOURS[scenario],
@@ -195,10 +215,11 @@ def plot_quarantine_vs_recovered(df: pd.DataFrame) -> str:
     ax1.grid(True, alpha=0.25)
     ax1.tick_params(axis="y", labelcolor="#2c3e50")
 
-    # -- Right axis: Cumulative Recovered --
+    # Right axis: Cumulative Recovered
     ax2 = ax1.twinx()
     for scenario in ["Worst-Case", "Real-Time-Containment"]:
-        sub = df[df["Scenario"] == scenario]
+        sub = df[df["Scenario"] == scenario].copy()
+        sub = sub.sort_values("Day")
         ax2.plot(
             sub["Day"], sub["Recovered"],
             color=COLOURS[scenario],
@@ -211,7 +232,7 @@ def plot_quarantine_vs_recovered(df: pd.DataFrame) -> str:
     ax2.set_ylabel("Cumulative Recovered (R)", color="#8e44ad")
     ax2.tick_params(axis="y", labelcolor="#8e44ad")
 
-    # -- Combined legend --
+    # Combined legend
     lines_1, labels_1 = ax1.get_legend_handles_labels()
     lines_2, labels_2 = ax2.get_legend_handles_labels()
     ax1.legend(
@@ -228,7 +249,7 @@ def plot_quarantine_vs_recovered(df: pd.DataFrame) -> str:
     path = os.path.join(OUTPUT_DIR, "quarantine_vs_recovered.png")
     fig.savefig(path)
     plt.close(fig)
-    print(f"[OK] Chart saved → {path}")
+    print(f"[OK] Chart saved to {path}")
     return path
 
 
