@@ -9,7 +9,4 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Results
-# 建议保留结果文件夹结构，但忽略具体数据
-results/*.csv
-results/*.png
+# Results (tracked — simulation outputs are part of the repo)

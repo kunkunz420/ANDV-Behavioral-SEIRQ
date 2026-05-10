@@ -2,7 +2,7 @@
 
 # 🌍 Language / 语言 / Idioma
 
-[English](README.md) | [简体中文](README_ZH.md) | [Español](README_ES.md)
+[English](README.md) | [简体中文](README_ZH.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Deutsch](README_DE.md)
 
 ---
 </div>
@@ -230,7 +230,11 @@ TAU = 1.0                  # Policy lag (days)
 │   └── quarantine_vs_recovered.png
 ├── .gitignore
 ├── requirements.txt
-└── README.md
+├── README.md                # English
+├── README_ZH.md             # Chinese (简体中文)
+├── README_ES.md             # Spanish (Español)
+├── README_FR.md             # French (Français)
+└── README_DE.md             # German (Deutsch)
 
 ```
 
