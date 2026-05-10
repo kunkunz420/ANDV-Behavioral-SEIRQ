@@ -1,0 +1,25 @@
+========================================================================
+  ANDV SEIRQ — Scenario Comparison Summary
+========================================================================
+
+  R0 = 2.12,  Incubation = 21.0d,  Infectious = 7.0d
+
+  Metric                                 Worst-Case (A)         Real-Time (B)         
+  ────────────────────────────────────── ────────────────────── ──────────────────────
+  Peak active infections                 150.0                  2.4                   
+  Peak day                               0                      1                     
+  Final recovered (R)                    288.0                  9.2                   
+  Final quarantined (Q)                  113.2                  17.8                  
+  Final susceptible (S)                  598.8                  973.0                 
+  Reff (initial)                         1.696                  2.082                 
+  Reff (day 7)                           0.826                  0.540                 
+  Reff (final)                           0.0779                 0.0689                
+  Reff below 1.0 on day                  7.0                    1.0                   
+
+────────────────────────────────────────────────────────────────────────
+  Key insight:
+  With real-time military isolation (1-day lag, 95% efficiency) the outbreak
+  peaks at only 2 active infections and Reff drops below 1.0
+  on day 1 — avoiding the catastrophic trajectory of the
+  worst-case scenario (150 peak active).
+========================================================================
